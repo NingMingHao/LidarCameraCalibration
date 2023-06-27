@@ -72,3 +72,10 @@ Before you start the lidar camera calibration, you are recommended to check the 
 - It's also recommended to save the calibration session, so that you can load it later and check the reprojection error again.
 
 ### Export the calibration result into ROS desired format
+Through the Lidar Camera Calibration, we can get the transformation matrix that transforms the lidar points into the camera frame. 
+
+However, the transformation matrix is not in the format that can be used in ROS. So we need to convert the transformation matrix into the format that can be used in ROS. Here we use the [convert_transform_into_yaml.m](./scripts/convert_transform_into_yaml.m) script to convert the transformation matrix into yaml file, where you can use it in the static transform publisher to publish the transformation between the lidar and camera frame.
+
+The desired format is shown below:
+`static_transform_publisher x y z yaw pitch roll frame_id child_frame_id period_in_ms` (yaw is rotation about Z, pitch is rotation about Y, and roll is rotation about X) in radians.
+The frame_id is typically the lidar frame, and the child_frame_id is typically the camera frame. So the translation vector is the position of the camera frame in the lidar frame, and the rotation vector is the rotation of the camera frame in the lidar frame.
