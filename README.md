@@ -44,7 +44,7 @@ Here you need to modify the following parameters:
 - It's recommended to save the calibration session, so that you can load it later and check the reprojection error again
 
 ### Undistort Images
-Use the [undist_al_images.m](./scripts/undist_all_images.m) script to undistort the images, it also generate a new `undistCameraParams` to store the parameters for the undistorted images, which will be used in the lidar camera calibration.
+Use the [undist_all_images.m](./scripts/undist_all_images.m) script to undistort the images, it also generate a new `undistCameraParams` to store the parameters for the undistorted images, which will be used in the lidar camera calibration.
 Here you need to modify the following parameters:
 - 'save_path': the parent folder where you save the paired images and point clouds
 
@@ -74,7 +74,7 @@ Before you start the lidar camera calibration, you are recommended to check the 
 ### Export the calibration result into ROS desired format
 Through the Lidar Camera Calibration, we can get the transformation matrix that transforms the lidar points into the camera frame. 
 
-However, the transformation matrix is not in the format that can be used in ROS. So we need to convert the transformation matrix into the format that can be used in ROS. Here we use the [convert_transform_into_yaml.m](./scripts/convert_transform_into_yaml.m) script to convert the transformation matrix into yaml file, where you can use it in the static transform publisher to publish the transformation between the lidar and camera frame.
+However, the transformation matrix is not in the format that can be used in ROS. So we need to convert the transformation matrix into the format that can be used in ROS. Here we use the [convert_tform_to_ROS.m](./scripts/convert_tform_to_ROS.m) script to convert the transformation matrix into yaml file, where you can use it in the static transform publisher to publish the transformation between the lidar and camera frame.
 
 The desired format is shown below:
 `static_transform_publisher x y z yaw pitch roll frame_id child_frame_id period_in_ms` (yaw is rotation about Z, pitch is rotation about Y, and roll is rotation about X) in radians.
