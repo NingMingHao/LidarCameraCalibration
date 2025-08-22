@@ -1,7 +1,7 @@
 load('tform.mat')
 
 % Save the camera intrinsics to a YAML file
-yamlFile = 'front_lidar_to_front_right_cam.yaml';
+yamlFile = 'front_lidar_to_cam.yaml';
 
 % Open the YAML file for writing
 fid = fopen(yamlFile, 'w');
@@ -11,6 +11,9 @@ end
 
 invert_tform = invert(tform);
 rotation = invert_tform.Rotation';
+
+
+
 translation = invert_tform.Translation;
 % Write the camera intrinsics to the YAML file
 fprintf(fid, 'P_camera = R*P_lidar + t \n');

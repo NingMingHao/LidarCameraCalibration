@@ -1,1 +1,3 @@
 .DS_Store
+copy_files.py
+__pycache__/

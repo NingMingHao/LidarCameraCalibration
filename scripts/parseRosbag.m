@@ -1,13 +1,23 @@
 clear; clc; close all
 
-rosbag_path = '/home/minghao/Documents/UWaterloo/Projects/WhiteBus/sensorcalib_bus_new/back_right/2023-06-19-15-43-57.bag';
-save_path = '/home/minghao/Documents/UWaterloo/Projects/WhiteBus/sensorcalib_bus_new/paired_results/back_right';
+parent_folder_path = '/Users/minghao/Documents/UWaterloo/Projects/outdoor/Calibration2508';
+node_number = 1;
+selected_camera = 'right';
+
+% Build paths dynamically
+rosbag_path = sprintf('%s/Bags/merged_node%d.bag', parent_folder_path, node_number);
+save_path   = sprintf('%s/paired_results/node%d/front_%s', parent_folder_path, node_number, selected_camera);
+
+% Load rosbag
 bag = rosbag(rosbag_path);
 
-imageBag = select(bag,'Topic','/usb_cam_right/image_raw/compressed');
-pcBag = select(bag,'Topic','/rslidar_points_BP_F');
+% Build topic string dynamically
+topic_name = sprintf('/pylon_camera_node_%s/image_raw/compressed', selected_camera);
+% Select the image topic from bag
+imageBag = select(bag, 'Topic', topic_name);
+pcBag = select(bag,'Topic','/rslidar_points_front');
 
-downsample_rate = 10;
+downsample_rate = 2;
 imageMsgs = readMessages(imageBag);
 pcMsgs = readMessages(pcBag);
 

@@ -1,8 +1,9 @@
 load('calibrationSession.mat')
 
-intrinsics = calibrationSession.CameraParameters.Intrinsics;
+cameraParams = calibrationSession.CameraParameters;
+intrinsics = cameraParams.Intrinsics;
 % Save the camera intrinsics to a YAML file
-yamlFile = 'front_left_camera_intrinsics.yaml';
+yamlFile = 'camera_intrinsics.yaml';
 
 
 % Open the YAML file for writing
