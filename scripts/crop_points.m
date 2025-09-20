@@ -7,7 +7,7 @@ crop_pointclouds_with_ground_roi(save_path, ...
     'OutPcDir','CropPointClouds', ...
     'MinAbove',-2.0, 'MaxAbove',2.0, ...
     'RansacDist',0.08, 'MaxAngDist',15, ...
-    'SelectNewROI', true);
+    'SelectNewROI', false);
 
 function crop_pointclouds_with_ground_roi(save_path, varargin)
 % crop_pointclouds_with_ground_roi(save_path, 'SelectNewROI', true, 'MinAbove', 0.05, 'MaxAbove', 2.0)
@@ -188,7 +188,7 @@ for i = 1:numel(pcd_list)
     Pxyz = rawpc.Location;
     % signed height above plane
     h = (Pxyz - p0) * n';
-    above = (h >= 1.5) & (h <= 4);
+    above = (h >= 0.5) & (h <= 2.5);
 
     if ~any(above)
         warning('No points survive height filter in %s', iname);

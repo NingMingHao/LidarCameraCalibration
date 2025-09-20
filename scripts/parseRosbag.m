@@ -1,8 +1,8 @@
 clear; clc; close all
 
-parent_folder_path = '/Users/minghao/Documents/UWaterloo/Projects/outdoor/Calibration2508';
+parent_folder_path = '/Users/minghao/Documents/UWaterloo/Projects/indoor/Calibration2025-09-19';
 node_number = 1;
-selected_camera = 'right';
+selected_camera = 'left';
 
 % Build paths dynamically
 rosbag_path = sprintf('%s/Bags/merged_node%d.bag', parent_folder_path, node_number);
