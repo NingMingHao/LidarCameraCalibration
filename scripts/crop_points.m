@@ -188,7 +188,7 @@ for i = 1:numel(pcd_list)
     Pxyz = rawpc.Location;
     % signed height above plane
     h = (Pxyz - p0) * n';
-    above = (h >= 1.5) & (h <= 4);
+    above = (h >= 3.5) & (h <= 7.2);
 
     if ~any(above)
         warning('No points survive height filter in %s', iname);
