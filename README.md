@@ -55,18 +55,20 @@ Here you need to modify the following parameters:
 - `selected_camera`: the selected camera (e.g. left or right.)
 - `downsample_rate`: the downsample rate for the lidar point cloud and image, typically the lidar runs at 10Hz, it's not necessary to save all the point clouds and images.
 
+## Change Matlab WorkSpace Path
+After you convert the rosbag to png and pcd files, you should change the path to the path containing the Images and PointClouds (example: paired_results/node1/front_left). Then when you run other Matlab scripts, choose `Add to Path` instead of `Change Folder` to make sure you are still in the correct folder.
 
+For following procedures to load files and save files, always make sure you are selecting the correct folder especially when you are doing multiple calibrations.
 
 ## Single Camera Calibration
 ### Camera Calibration
 - Launch the single camera calibration app
-- Load the images from files, use `Checkerboard` as the pattern, and `200mm` as the square size, choose `Image distortion` as `Low`
+- Load the images from files, use `Checkerboard` as the pattern, and `90mm` as the square size, choose `Image distortion` as `Low`
 - In `Options`, choose `2 Coefficients` for `Radial distortion`, and `Tangential distortion` as `Enabled`, this is the commonly used plumb bob model
 - Remove the unwanted images in `Data Browser`, and then `Calibrate`
 - After the calibration, you can check the reprojection error, and then export the calibration result
 - It's recommended to save the calibration session, so that you can load it later and check the reprojection error again
 
-- **Note**: The collected bags for the camera calibration might not be good enough due to limited checkerboard positions and angles, so you can skip this step if the performance is not satisfactory. Instead, you can just copy and paste the previous calibration result in to this folder `node{id}/front_{left|right}/calibrationSession.mat`.
 
 ### Convert the Camera Calibration to ROS format
 You can run the [convert_intrinsic_into_yaml.m](./scripts/convert_intrinsic_into_yaml.m) to convert the intrinsic parameters into yaml file, which can be used in the [image_proc](http://wiki.ros.org/image_proc) ROS package. It will first load the saved `calibrationSession.mat` file, and then convert the intrinsic parameters into the ROS format.
@@ -88,11 +90,11 @@ Before you start the lidar camera calibration, you are recommended to check the 
 
 ### Lidar Camera Calibration
 - Launch the lidar camera calibration app
-- Load the **undistorted images** and point clouds, choose `Checkerboard` as the pattern, and `200mm` as the square size, also specify the `padding` size as `100mm`
+- Load the **undistorted images** and point clouds, choose `Checkerboard` as the pattern, and `90mm` as the square size, also specify the `padding` size as `60mm`
 - `Use Fixed Intrinsic` for the camera, and load the `undistCameraParams.mat` file
 - You may **not** need the `Remove Ground` option, if you have already cropped the point clouds using the [crop_points.m](./scripts/crop_points.m) script
 - You need to `Edit ROI` to adjust (expand) the ROI to make sure it includes the checkerboard plane points
-- Try to `Detect Checkerboard` first, if it fails, you can try to adjust the `Cluster Threshold` and `Dimension Tolerance` to make it work. 0.4 for `Cluster Threshold` and 0.2 for `Dimension Tolerance` should be a good option.
+- Try to `Detect Checkerboard` first, if it fails, you can try to adjust the `Cluster Threshold` and `Dimension Tolerance` to make it work. 0.25 for `Cluster Threshold` and 0.2 for `Dimension Tolerance` should be a good option.
     - Cluster Threshold — Clustering threshold for two adjacent points in the point cloud, specified in meters. The clustering process is based on the Euclidean distance between adjacent points. If the distance between two adjacent points is less than the clustering threshold, both points belong to the same cluster. Low-resolution lidar sensors require a higher Cluster Threshold, while high-resolution lidar sensors benefit from a lower Cluster Threshold.
     - Dimension Tolerance — Tolerance for uncertainty in the rectangular plane dimensions, specified in the range [0,1]. A higher Dimension Tolerance indicates a more tolerant range for the rectangular plane dimensions.
 - If the matched data is not enough, you can then try to `Select Checkerboard` manually, where you can select the checkerboard plane points manually. If you **didn't** crop the points, you may struggle to tune the view angle to select the checkerboard plane points, so it's recommended to crop the points first.
