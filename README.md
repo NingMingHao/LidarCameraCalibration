@@ -9,50 +9,33 @@ It covers the following topics:
 
 
 
-
-## Data Preprocessing
-### Select Time Range and Merge as One Rosbag
-Use the [merge_rosbag.py](./preprocess/merge_bag.py) script to merge the rosbag files. This script will also allow you to select a specific time range for the data you want to include in the merged bag.
-Here you need to modify the following parameters:
-- `SENSOR_ID`: a integer representing the sensor ID
-- `BAG_DIR`: the directory containing the rosbag files
-- `OUTPUT_BAG`: the output merged rosbag file
-- `TIME_SLICES`: a list of tuples representing the time ranges to include (start_time, end_time)
-
-You can find the time ranges via playing the bags and check if the checkerboard is visible in Rviz.
-```bash
-rosbag play *.bag --clock --skip-empty 2
-```
-
-### Data Organization
+## Data Organization
 Folder Structure is as follows:
 
 ```bash
 parent_folder_path
 ├── Bags
-│   ├── merged_node1.bag
-│   ├── merged_node2.bag
+│   ├── cam{id}_{lidar_id} # where id is from 0 to 5, indicating from front left to rear left in clockwise order; lidar_id is from [front, BP_F, BP_R]
+│   │   ├── metadata.yaml (metadata for the ros2 bag)
+│   │   └── .db3 (ros2 bag file)
 │   └── ...
 └── paired_results (this folder is generated via the codes)
-    ├── node1
-    │   ├── front_left
-    │   │   ├── Images (raw images)
-    │   │   ├── PointClouds (raw point clouds)
-    │   │   ├── UndistImages (rectified images)
-    │   │   ├── CropPointClouds (cropped point clouds in region of interest)
-    │   │   ├── calibrationSession.mat (Saved camera calibration session)
-    │   │   ├── lccSession.mat (Saved lidar camera calibration session)
-    │   │   └──  ...
-    │   └── front_right
-    ├── node2
+    ├── cam{id}_{lidar_id}
+    │   ├── Images (raw images)
+    │   ├── PointClouds (raw point clouds)
+    │   ├── UndistImages (rectified images)
+    │   ├── CropPointClouds (cropped point clouds in region of interest)
+    │   ├── calibrationSession.mat (Saved camera calibration session)
+    │   ├── lccSession.mat (Saved lidar camera calibration session)
+    │   └──  ...
     └── ...
 ```
 
 Use this [parseRosbag.m](./scripts/parseRosbag.m) to convert the rosbag file to png and pcd files. This will synchronize the lidar point cloud and camera image, and downsample the point cloud and image to the specified rate. This script is based on [this link](https://www.mathworks.com/help/lidar/ug/read-lidar-and-camera-data-from-rosbag.html).
 Here you need to modify the following parameters:
 - `parent_folder_path`: the folder for the whole project, like shown in the folder structure
-- `node_number`: the node number (e.g. 1, 2, etc.)
-- `selected_camera`: the selected camera (e.g. left or right.)
+- `cam_id`: the camera id number (e.g. 0, 1, 2, etc. front-left -> rear-left, clockwise)
+- `lidar_id`: the selected lidar (e.g. front, BP_F, BP_R)
 - `downsample_rate`: the downsample rate for the lidar point cloud and image, typically the lidar runs at 10Hz, it's not necessary to save all the point clouds and images.
 
 ## Change Matlab WorkSpace Path
