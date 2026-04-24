@@ -25,7 +25,7 @@ SENSOR_ID = 1
 BAG_DIR = f"/media/minghao/Data6TB1/OutdoorData/2025_08_12_sensorcalib/Node{SENSOR_ID}"
 
 # Output bag file path (the folder will be created if needed)
-OUTPUT_BAG = f"/home/minghao/Documents/UWaterloo/Projects/Outdoor/CalibTools/rosbags/merged_node{SENSOR_ID}.bag"
+OUTPUT_BAG = f"/home/minghao/Documents/UWaterloo/Projects/Outdoor/CalibTools/Bags/merged_node{SENSOR_ID}.bag"
 
 # Time slices (inclusive): messages with timestamps in ANY of these ranges are kept.
 # Provide as POSIX seconds (float/int). Example below shows two slices.

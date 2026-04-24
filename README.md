@@ -1,7 +1,7 @@
 # LidarCameraCalibration
-Steps to use MATLAB calibration toolbox for lidar camera calibration. In my case, I used the MATLAB R2024b version.
+Steps for using MATLAB for camera calibration (fisheye) and then do the lidar camera calibration via manually selecting the matched points.
 
-This repo includes the steps to use the MATLAB [single camera calibration toolbox](https://www.mathworks.com/help/vision/ug/using-the-single-camera-calibrator-app.html) and [lidar camera calibration toolbox](https://www.mathworks.com/help/lidar/ug/get-started-lidar-camera-calibrator.html).
+
 
 It covers the following topics:
 - [Single Camera Calibration](#single-camera-calibration)
@@ -37,11 +37,11 @@ parent_folder_path
     ├── node1
     │   ├── front_left
     │   │   ├── Images (raw images)
-    │   │   ├── PointClouds (raw point clouds)
+    │   │   ├── PointClouds (raw point clouds) (only generated when `enable_pointcloud_stream` is set to true)
     │   │   ├── UndistImages (rectified images)
-    │   │   ├── CropPointClouds (cropped point clouds in region of interest)
+    │   │   ├── CropPointClouds (cropped point clouds in region of interest) (only generated when `enable_pointcloud_stream` is set to true)
     │   │   ├── calibrationSession.mat (Saved camera calibration session)
-    │   │   ├── lccSession.mat (Saved lidar camera calibration session)
+    │   │   ├── lccSession.mat (Saved lidar camera calibration session) (only generated when `enable_pointcloud_stream` is set to true)
     │   │   └──  ...
     │   └── front_right
     ├── node2
@@ -54,59 +54,167 @@ Here you need to modify the following parameters:
 - `node_number`: the node number (e.g. 1, 2, etc.)
 - `selected_camera`: the selected camera (e.g. left or right.)
 - `downsample_rate`: the downsample rate for the lidar point cloud and image, typically the lidar runs at 10Hz, it's not necessary to save all the point clouds and images.
+- `enable_pointcloud_stream`: for this camera calibration case, we can set it to false. But for the case that there is both the camera and lidar data capturing the same checkerboard, you can set it to true and use the [Lidar Camera Calibration](#lidar-camera-calibration) part to calibrate the lidar and camera together.
 
 
 
 ## Single Camera Calibration
 ### Camera Calibration
 - Launch the single camera calibration app
-- Load the images from files, use `Checkerboard` as the pattern, and `200mm` as the square size, choose `Image distortion` as `Low`
-- In `Options`, choose `2 Coefficients` for `Radial distortion`, and `Tangential distortion` as `Enabled`, this is the commonly used plumb bob model
+- Load the images from files, use `Checkerboard` as the pattern, and `90mm` as the square size, choose `Image distortion` as `High`
+- Change the `Camear Model` from `Standard` to `Fisheye`, and make sure the `Estimate Alignment` option is **not checked**.
 - Remove the unwanted images in `Data Browser`, and then `Calibrate`
 - After the calibration, you can check the reprojection error, and then export the calibration result
 - It's recommended to save the calibration session, so that you can load it later and check the reprojection error again
 
-- **Note**: The collected bags for the camera calibration might not be good enough due to limited checkerboard positions and angles, so you can skip this step if the performance is not satisfactory. Instead, you can just copy and paste the previous calibration result in to this folder `node{id}/front_{left|right}/calibrationSession.mat`.
 
 ### Convert the Camera Calibration to ROS format
-You can run the [convert_intrinsic_into_yaml.m](./scripts/convert_intrinsic_into_yaml.m) to convert the intrinsic parameters into yaml file, which can be used in the [image_proc](http://wiki.ros.org/image_proc) ROS package. It will first load the saved `calibrationSession.mat` file, and then convert the intrinsic parameters into the ROS format.
 
-**Note**: Make sure the current path is set to the folder containing the `calibrationSession.mat` file, and run the script via `Add to Path` instead of `Change Folder`.
+After saving the MATLAB fisheye calibration session, convert it to a ROS/OpenCV
+`equidistant` camera YAML:
 
+```bash
+cd /path/to/paired_results/node88/center
+matlab -batch "run('/home/minghao/Documents/Gits/OutdoorNodeFu/LidarCameraCalibration/scripts/convert_matlab_fisheye_to_ros_equdist.m')"
+```
 
-### Undistort Images
-Use the [undist_all_images.m](./scripts/undist_all_images.m) script to undistort the images, it also generate a new `undistCameraParams` to store the parameters for the undistorted images, which will be used in the lidar camera calibration.
+The script expects the following files/paths relative to the current folder:
 
+- `calibrationSession.mat`: MATLAB camera calibration session or exported `cameraParams`
+- `Images/0036.png`: optional example image for visual overlay and undistortion preview
+
+Main settings to check in
+[`convert_matlab_fisheye_to_ros_equdist.m`](./scripts/convert_matlab_fisheye_to_ros_equdist.m):
+
+- `cameraName`: camera name written into the YAML, e.g. `center_cam`
+- `fitHorizontalFovDeg` / `fitVerticalFovDeg`: useful FOV used for fitting the OpenCV fisheye model
+- `exampleImagePath`: optional raw image used for visual checks
+- `undistortedFocalScale`: virtual focal scale for the preview undistorted image
+- `subtractOneForOpenCV`: keep this `true` for ROS/OpenCV 0-based pixel coordinates
+
+Outputs:
+
+- `ros_equdist_fisheye.yaml`: ROS camera calibration YAML
+- `ros_equdist_undistorted_preview.png`: optional undistorted preview image
+
+The YAML uses:
+
+```yaml
+distortion_model: equidistant
+camera_matrix: K
+distortion_coefficients: [k1, k2, k3, k4]
+```
+
+Check the printed fit error before using the YAML for lidar-camera calibration.
+A good conversion should have small reprojection error relative to MATLAB's
+`fisheyeIntrinsics`.
 
 
 ## Lidar Camera Calibration
-### Preparation
-Before you start the lidar camera calibration, you are recommended to check the following things:
-- Check the `UndistImages` folder, delete the images that are not good, like the images with the checkerboard not fully visible. Even though the calibration toolbox can tell the bad images, it's better to remove them manually.
-- Run the [crop_points.m](./scripts/crop_points.m) to crop the point clouds, it limits the point cloud into a region of interest, where you may remove the ground plane, or the points that are too far away from the camera, etc. This will reduce the computation time for the calibration. This script will only look for the point clouds with corresponding undistorted images, so you can safely delete unwanted images in the `UndistImages` folder.
-- When you run the [crop_points.m](./scripts/crop_points.m) script, it will prompt you to select the region of interest in the point cloud. You can use the mouse to draw a bounding box around the area you want to keep, and then press `Enter` to confirm the selection.
+### Manually Select the Matched Points
 
-### Lidar Camera Calibration
-- Launch the lidar camera calibration app
-- Load the **undistorted images** and point clouds, choose `Checkerboard` as the pattern, and `200mm` as the square size, also specify the `padding` size as `100mm`
-- `Use Fixed Intrinsic` for the camera, and load the `undistCameraParams.mat` file
-- You may **not** need the `Remove Ground` option, if you have already cropped the point clouds using the [crop_points.m](./scripts/crop_points.m) script
-- You need to `Edit ROI` to adjust (expand) the ROI to make sure it includes the checkerboard plane points
-- Try to `Detect Checkerboard` first, if it fails, you can try to adjust the `Cluster Threshold` and `Dimension Tolerance` to make it work. 0.4 for `Cluster Threshold` and 0.2 for `Dimension Tolerance` should be a good option.
-    - Cluster Threshold — Clustering threshold for two adjacent points in the point cloud, specified in meters. The clustering process is based on the Euclidean distance between adjacent points. If the distance between two adjacent points is less than the clustering threshold, both points belong to the same cluster. Low-resolution lidar sensors require a higher Cluster Threshold, while high-resolution lidar sensors benefit from a lower Cluster Threshold.
-    - Dimension Tolerance — Tolerance for uncertainty in the rectangular plane dimensions, specified in the range [0,1]. A higher Dimension Tolerance indicates a more tolerant range for the rectangular plane dimensions.
-- If the matched data is not enough, you can then try to `Select Checkerboard` manually, where you can select the checkerboard plane points manually. If you **didn't** crop the points, you may struggle to tune the view angle to select the checkerboard plane points, so it's recommended to crop the points first.
-- Then `Calibrate`, after the calibration, you can check the reprojection error, and then export the calibration result.
-- When you find the reprojection error is quite high even if the checkerboard plane is clearly visible, you may need to adjust the `Initial Transform` to make the checkerboard plane more parallel with the lidar scanning plane. For `Initial Transform`, this is necessary when the orientation of the two sensors are not aligned, you need to use the [rigid3d](https://www.mathworks.com/help/images/ref/rigid3d.html) function to define a rigid3d class for initial transform. Please note the `T` used in Matlab is **not the common way** as we use:
+Use the multi-timestamp manual pairing tool:
 
-![Rigid3d](./images/rigid3d.png)
-- It's also recommended to save the calibration session, so that you can load it later and check the reprojection error again.
+```bash
+rosparam set /use_sim_time false
 
-### Export the calibration result into ROS desired format
-Through the Lidar Camera Calibration, we can get the transformation matrix that transforms the lidar points into the camera frame. 
+python3 scripts/fisheye_lidar_cam_pair_tool.py \
+  --bag /path/to/Bags/merged_node88.bag \
+  --camera-yaml /path/to/paired_results/node88/center/ros_equdist_fisheye.yaml
+```
 
-However, the transformation matrix is not in the format that can be used in ROS. So we need to convert the transformation matrix into the format that can be used in ROS. Here we use the [convert_tform_to_ROS.m](./scripts/convert_tform_to_ROS.m) script to convert the transformation matrix into yaml file, where you can use it in the static transform publisher to publish the transformation between the lidar and camera frame.
+The input bag should contain one camera stream, one camera info stream, one
+lidar stream, and optionally `/tf`, for example:
 
-The desired format is shown below:
-`static_transform_publisher x y z yaw pitch roll frame_id child_frame_id period_in_ms` (yaw is rotation about Z, pitch is rotation about Y, and roll is rotation about X) in radians.
-The frame_id is typically the lidar frame, and the child_frame_id is typically the camera frame. So the translation vector is the position of the camera frame in the lidar frame, and the rotation vector is the rotation of the camera frame in the lidar frame.
+```text
+/camera/center/image_raw/compressed
+/camera/center/camera_info
+/rslidar_points_front
+/tf
+```
+
+By default the tool auto-detects these topics. If needed, override them:
+
+```bash
+python3 scripts/fisheye_lidar_cam_pair_tool.py \
+  --bag /path/to/merged_node88.bag \
+  --camera-yaml /path/to/ros_equdist_fisheye.yaml \
+  --lidar-topic /rslidar_points_front \
+  --image-topic /camera/center/image_raw/compressed \
+  --camera-info-topic /camera/center/camera_info
+```
+
+The tool publishes only calibration topics:
+
+- `/calibration/rslidar_points_front`
+- `/calibration/camera/image_raw`
+- `/calibration/camera/image_rect`
+- `/calibration/camera/camera_info`
+- `/calibration/pairs_markers`
+
+Recommended RViz setup:
+
+- Fixed Frame: the lidar frame, e.g. `rslidar_front`
+- PointCloud2: `/calibration/rslidar_points_front`
+- Image: `/calibration/camera/image_raw` or `/calibration/camera/image_rect`
+- MarkerArray: `/calibration/pairs_markers`
+- Use RViz `Publish Point` to publish selected 3D points to `/clicked_point`
+
+The tool uses lidar/cloud timestamps as the sync reference. It matches each
+pointcloud to the nearest image and camera info, then downsamples the valid
+timestamps for easier browsing.
+
+Useful sync options:
+
+- `--sync-tolerance 0.05`: maximum allowed nearest-neighbor time difference, in seconds
+- `--frame-step 10`: default timestamp downsampling; for a 10 Hz bag this shows about 1 Hz
+- `--target-sync-hz 1.0`: alternative downsampling by target display rate
+- `--max-sync-frames 100`: cap the displayed synchronized frames
+
+Pair selection workflow:
+
+1. Start `roscore`.
+2. Run the pairing tool.
+3. Open RViz and subscribe to the `/calibration/*` topics.
+4. Select a synchronized frame in the UI.
+5. Pick a 3D point in RViz with `Publish Point`.
+6. Click the matching pixel in the tool's `Raw image` tab.
+7. Repeat across multiple timestamps. Current-frame markers are strong; other-frame markers are ghosted.
+8. Save pairs with `Save pairs`.
+
+The raw fisheye image is the authoritative pixel selection view. The rectified
+image is only a preview/checking aid.
+
+If a YAML file is passed with `--camera-yaml`, the tool overrides the bag
+`CameraInfo`, resizes the raw image to the YAML resolution, and rectifies using
+the YAML fisheye model. If no YAML is passed, the bag `CameraInfo` is used.
+
+The `TF guess` tab shows the current lidar-to-camera transform in ROS static
+transform convention:
+
+```text
+x y z yaw pitch roll lidar_frame camera_frame
+```
+
+Use this tab to manually tune the transform before optimization:
+
+- `Apply TF guess`: broadcasts the edited TF and republishes the current frame
+- `Reset from bag TF`: reloads the initial transform from `/tf`
+- `Evaluate current TF`: computes reprojection error using the current TF without optimizing
+- `Run calibration`: uses the current TF as the initial guess
+
+After calibration, the tool:
+
+- broadcasts the calibrated TF live
+- prints `static_transform_publisher` arguments
+- saves a result YAML, normally `fisheye_lidar_camera_calibration_result.yaml`
+- writes per-pair reprojection errors and overall RMS/p95/max error
+
+Notes:
+
+- Prefer `rosparam set /use_sim_time false` for this tool. It reads the bag
+  internally and republishes selected frames live; using sim time without
+  publishing `/clock` can make RViz ignore fresh messages.
+- If RViz does not visually update after editing the TF, press `Apply TF guess`.
+  The tool republishes the current pointcloud/image/camera_info with fresh
+  timestamps so RViz uses the new transform immediately.
