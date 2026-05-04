@@ -47,6 +47,7 @@ except ImportError as exc:
 
 
 CALIB_PREFIX = "/calibration"
+DEFAULT_RESULT_FILENAME = "fisheye_lidar_camera_calibration_result.yaml"
 
 
 @dataclass
@@ -315,6 +316,16 @@ def rectify_image(img_bgr: np.ndarray, model: CameraModel) -> np.ndarray:
     return cv2.undistort(img_bgr, model.K, model.D, None, model.P[:3, :3])
 
 
+def default_result_path(args) -> str:
+    if getattr(args, "result_yaml", ""):
+        return os.path.abspath(os.path.expanduser(args.result_yaml))
+    if getattr(args, "camera_yaml", ""):
+        return os.path.join(os.path.dirname(os.path.abspath(args.camera_yaml)), DEFAULT_RESULT_FILENAME)
+    if getattr(args, "bag", ""):
+        return os.path.join(os.path.dirname(os.path.abspath(args.bag)), DEFAULT_RESULT_FILENAME)
+    return os.path.abspath(DEFAULT_RESULT_FILENAME)
+
+
 class CalibrationBackend(QtCore.QObject):
     frame_changed = QtCore.pyqtSignal(object, object)
     pairs_changed = QtCore.pyqtSignal()
@@ -339,6 +350,8 @@ class CalibrationBackend(QtCore.QObject):
         self.last_marker_ids = set()
         self.latest_T_cam_lidar: Optional[np.ndarray] = None
         self.tf_guess_source = "unset"
+        self.result_path = default_result_path(args)
+        self.last_result_summary = "No calibration result saved yet."
 
         self.active_camera_model: Optional[CameraModel] = None
         self.current_raw_image: Optional[np.ndarray] = None
@@ -631,8 +644,10 @@ class CalibrationBackend(QtCore.QObject):
         )
 
     def save_pairs(self, path: str) -> Tuple[bool, str]:
+        path = os.path.abspath(os.path.expanduser(path))
         data = self.export_data(include_result=False)
         try:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             with open(path, "w") as f:
                 if path.lower().endswith((".yaml", ".yml")):
                     yaml.safe_dump(data, f, sort_keys=False)
@@ -643,9 +658,12 @@ class CalibrationBackend(QtCore.QObject):
             return False, str(exc)
 
     def load_pairs(self, path: str) -> Tuple[bool, str]:
+        path = os.path.abspath(os.path.expanduser(path))
         try:
             with open(path, "r") as f:
                 data = yaml.safe_load(f) if path.lower().endswith((".yaml", ".yml")) else json.load(f)
+            if data is None:
+                data = {}
             self.pairs = []
             for item in data.get("pairs", []):
                 pair = {
@@ -659,11 +677,35 @@ class CalibrationBackend(QtCore.QObject):
                 }
                 self.pairs.append(pair)
             self.next_pair_index = max([p["index"] for p in self.pairs], default=-1) + 1
+            loaded_tf = self.load_result_tf_from_data(data, path)
             self.pairs_changed.emit()
             self.publish_markers()
-            return True, f"Loaded {len(self.pairs)} pairs."
+            suffix = " and calibration result TF." if loaded_tf else "."
+            return True, f"Loaded {len(self.pairs)} pairs{suffix}"
         except Exception as exc:
             return False, str(exc)
+
+    def load_result_tf_from_data(self, data: Dict, path: str) -> bool:
+        result = data.get("result") or {}
+        matrix = result.get("T_cam_lidar") or (data.get("tf_guess") or {}).get("T_cam_lidar")
+        if matrix is None:
+            return False
+        T = np.array(matrix, dtype=np.float64).reshape(4, 4)
+        self.latest_T_cam_lidar = T
+        self.tf_guess_source = f"loaded result: {os.path.basename(path)}"
+        self.result_path = path
+        reproj = result.get("reprojection") or {}
+        if reproj:
+            self.last_result_summary = (
+                f"Loaded {os.path.basename(path)}: "
+                f"RMS={float(reproj.get('rms_px', 0.0)):.3f}px, "
+                f"p95={float(reproj.get('p95_px', 0.0)):.3f}px"
+            )
+        else:
+            self.last_result_summary = f"Loaded calibration result TF from {path}"
+        self.republish_current_frame()
+        self.tf_guess_changed.emit()
+        return True
 
     def export_data(self, include_result=True) -> Dict:
         model = self.active_camera_model
@@ -817,11 +859,24 @@ class CalibrationBackend(QtCore.QObject):
             "reprojection": stats,
         }
         if save_path:
-            with open(save_path, "w") as f:
-                yaml.safe_dump(data, f, sort_keys=False)
+            save_path = os.path.abspath(os.path.expanduser(save_path))
+            try:
+                os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+                with open(save_path, "w") as f:
+                    yaml.safe_dump(data, f, sort_keys=False)
+                self.result_path = save_path
+                self.last_result_summary = (
+                    f"Saved {len(complete)} pairs to {save_path}\n"
+                    f"RMS={stats['rms_px']:.3f}px, p95={stats['p95_px']:.3f}px"
+                )
+            except Exception as exc:
+                return False, f"Calibration solved, but saving result YAML failed: {exc}\n{static_args}"
         self.pairs_changed.emit()
         self.tf_guess_changed.emit()
-        return True, f"Calibration OK: RMS={stats['rms_px']:.3f}px, p95={stats['p95_px']:.3f}px\n{static_args}"
+        return True, (
+            f"Calibration OK: RMS={stats['rms_px']:.3f}px, p95={stats['p95_px']:.3f}px\n"
+            f"Saved: {self.result_path}\n{static_args}"
+        )
 
 
 class ImageView(QtWidgets.QGraphicsView):
@@ -919,6 +974,7 @@ class CalibUI(QtWidgets.QWidget):
         self.backend.tf_guess_changed.connect(self.refresh_tf_editor)
         self.build_ui()
         self.refresh_frames()
+        self.refresh_result_info()
         if self.backend.current_sync_id is not None:
             self.backend.load_frame(self.backend.current_sync_id)
 
@@ -963,15 +1019,27 @@ class CalibUI(QtWidgets.QWidget):
         right.addWidget(QtWidgets.QLabel("Pairs"))
         right.addWidget(self.pair_table, 2)
 
+        result_box = QtWidgets.QGroupBox("Calibration result YAML")
+        result_layout = QtWidgets.QVBoxLayout(result_box)
+        self.result_path_label = QtWidgets.QLabel("")
+        self.result_path_label.setWordWrap(True)
+        self.result_status_label = QtWidgets.QLabel("")
+        self.result_status_label.setWordWrap(True)
+        result_layout.addWidget(self.result_path_label)
+        result_layout.addWidget(self.result_status_label)
+        right.addWidget(result_box)
+
         buttons = QtWidgets.QHBoxLayout()
         self.btn_remove = QtWidgets.QPushButton("Remove")
         self.btn_save = QtWidgets.QPushButton("Save pairs")
         self.btn_load = QtWidgets.QPushButton("Load pairs")
         self.btn_calib = QtWidgets.QPushButton("Run calibration")
+        self.btn_copy_tf = QtWidgets.QPushButton("Copy static TF")
         buttons.addWidget(self.btn_remove)
         buttons.addWidget(self.btn_save)
         buttons.addWidget(self.btn_load)
         buttons.addWidget(self.btn_calib)
+        buttons.addWidget(self.btn_copy_tf)
         right.addLayout(buttons)
 
         self.raw_view.image_clicked.connect(self.on_image_clicked)
@@ -985,6 +1053,7 @@ class CalibUI(QtWidgets.QWidget):
         self.btn_save.clicked.connect(self.save_pairs)
         self.btn_load.clicked.connect(self.load_pairs)
         self.btn_calib.clicked.connect(self.run_calibration)
+        self.btn_copy_tf.clicked.connect(self.copy_static_tf)
 
     def build_tf_tab(self):
         widget = QtWidgets.QWidget()
@@ -1050,6 +1119,13 @@ class CalibUI(QtWidgets.QWidget):
         self.refresh_pairs()
         self.refresh_images()
         self.refresh_tf_editor()
+        self.refresh_result_info()
+
+    def refresh_result_info(self):
+        if not hasattr(self, "result_path_label"):
+            return
+        self.result_path_label.setText(f"Path: {self.backend.result_path}")
+        self.result_status_label.setText(self.backend.last_result_summary)
 
     def refresh_frames(self):
         frames = self.backend.frames_for_ui()
@@ -1154,6 +1230,7 @@ class CalibUI(QtWidgets.QWidget):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load pairs", "", "YAML/JSON (*.yaml *.yml *.json)")
         if path:
             ok, msg = self.backend.load_pairs(path)
+            self.refresh_result_info()
             (QtWidgets.QMessageBox.information if ok else QtWidgets.QMessageBox.warning)(self, "Load pairs", msg)
 
     def refresh_tf_editor(self):
@@ -1202,12 +1279,18 @@ class CalibUI(QtWidgets.QWidget):
 
     def run_calibration(self):
         self.apply_tf_editor()
-        default = os.path.join(os.getcwd(), "fisheye_lidar_camera_calibration_result.yaml")
+        default = self.backend.result_path
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save calibration result", default, "YAML (*.yaml *.yml)")
         if not path:
             return
         ok, msg = self.backend.run_calibration(path)
+        self.refresh_result_info()
         (QtWidgets.QMessageBox.information if ok else QtWidgets.QMessageBox.warning)(self, "Calibration", msg)
+
+    def copy_static_tf(self):
+        text = self.backend.current_static_tf_string()
+        QtWidgets.QApplication.clipboard().setText(text)
+        self.result_status_label.setText("Copied static_transform_publisher args to clipboard.")
 
 
 def parse_args():
@@ -1221,6 +1304,14 @@ def parse_args():
     parser.add_argument("--frame-step", type=int, default=10)
     parser.add_argument("--target-sync-hz", type=float, default=None)
     parser.add_argument("--max-sync-frames", type=int, default=None)
+    parser.add_argument(
+        "--result-yaml",
+        default="",
+        help=(
+            "Default path for calibration result YAML. If omitted, the tool saves next to "
+            "--camera-yaml when provided, otherwise next to the bag."
+        ),
+    )
     return parser.parse_args(rospy.myargv(argv=sys.argv)[1:])
 
 
@@ -1228,6 +1319,7 @@ def main():
     args = parse_args()
     args.bag = os.path.expanduser(args.bag)
     args.camera_yaml = os.path.expanduser(args.camera_yaml) if args.camera_yaml else ""
+    args.result_yaml = os.path.expanduser(args.result_yaml) if args.result_yaml else ""
     rospy.init_node("fisheye_lidar_cam_pair_tool", anonymous=True, disable_signals=True)
     bag_data = read_bag_data(args)
     all_frames, valid_frames = build_sync_frames(
